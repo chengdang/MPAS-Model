@@ -4380,10 +4380,10 @@
          mu_75  =  0.2588_dbl_kind       ! cosine of 75 degree
 
       real (kind=dbl_kind) :: &
-         sza_c1       , & ! spectral ocean albedo to direct rad
-         sza_c0       , & ! spectral ocean albedo to diffuse rad
-         sza_factor   , &
-         mu0
+         sza_c1       , & ! coefficient, SZA parameteirzation
+         sza_c0       , & ! coefficient, SZA parameterization
+         sza_factor   , & ! factor used to adjust NIR direct albedo
+         mu0              ! incident solar zenith angle
 
       ! 5-bands ice surface scattering layer (ssl) iops to match SNICAR calculations
       ! note by Cheng Dang:
@@ -4545,7 +4545,7 @@
           gi_int_5bd(ns) = gi_int_mn_5bd(ns)
         enddo
       else !if( R_ice < c0 ) then
-        do ns = 1, nspint
+        do ns = 1, nspint_5bd
           sigp       = ki_ssl_mn_5bd(ns)*wi_ssl_mn_5bd(ns)*(c1+fm_ice*R_ice)
           sigp       = max(sigp, c0)
           ki_ssl_5bd(ns) = sigp+ki_ssl_mn_5bd(ns)*(c1-wi_ssl_mn_5bd(ns))
@@ -5281,16 +5281,16 @@
 
 
       ! accumulate fluxes over bare sea ice
-
       ! solar zenith angle parameterization
       ! calculate the scaling factor for NIR direct albedo if SZA>75 degree
+      ! for details please contact Cheng DANG (chengd1@uw.edu)
       sza_factor = c1
       if( srftyp == 1 ) then
          mu0  = max(coszen,p01)
          if (mu0 < mu_75) then
             sza_c1 = sza_a0 + sza_a1 * mu0 + sza_a2 * mu0**2
             sza_c0 = sza_b0 + sza_b1 * mu0 + sza_b2 * mu0**2
-            sza_factor = sza_c1 * log10 (rsnw(1)) + sza_c0
+            sza_factor = sza_c1 * (log10(rsnw(1)) - 6.0) + sza_c0
           endif
        endif
 
@@ -5305,8 +5305,8 @@
       ! by the default model set up:
       !      if snow_depth >= 8 cm, SSL = 4 cm, satisify
       ! esle if snow_depth >= 4 cm, SSL = snow_depth/2 >= 2 cm, satisfy
-      ! esle    snow_depth < 4 cm, SSL = snow_depth/2, may overheat SSL layer
-      fswsfc  = fswsfc - (sza_factor-c1)*aidr*swidr + fsfc*fi
+      ! esle    snow_depth < 4 cm, SSL = snow_depth/2, may overcool SSL layer
+      fswsfc  = fswsfc  + (fsfc - (sza_factor-c1)*aidr*swidr)*fi
       fswint  = fswint  + fint *fi
       fswthru = fswthru + fthru*fi
 
