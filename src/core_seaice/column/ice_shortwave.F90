@@ -1466,6 +1466,11 @@
                albsno = albsno &
                       + awtvdr*avdrl + awtidr*aidrl &
                       + awtvdf*avdfl + awtidf*aidfl
+
+               
+               !write(warning,*) ' alvdr, albdf, alidr, alidf = ', 
+               !call add_warning(warning)
+
               else ! use 3 band IOPs for snow
                call compute_dEdd(nilyr,       nslyr,   klev,   klevp,    &
                        n_zaero,   zbio,        dEdd_algae,               &
@@ -1549,7 +1554,6 @@
          endif
 
       if (l_print_point .and. netsw > puny) then
-
          write(warning,*) ' printing point = ',n
          call add_warning(warning)
          write(warning,*) ' coszen = ', &
@@ -4380,9 +4384,9 @@
          mu_75  =  0.2588_dbl_kind       ! cosine of 75 degree
 
       real (kind=dbl_kind) :: &
-         sza_c1       , & ! spectral ocean albedo to direct rad
-         sza_c0       , & ! spectral ocean albedo to diffuse rad
-         sza_factor   , &
+         sza_c1       , & ! parameter for high sza adjustment
+         sza_c0       , & ! parameter for high sza adjustment
+         sza_factor   , & ! parameter for high sza adjustment
          mu0
 
       ! 5-bands ice surface scattering layer (ssl) iops to match SNICAR calculations
@@ -5290,23 +5294,23 @@
          if (mu0 < mu_75) then
             sza_c1 = sza_a0 + sza_a1 * mu0 + sza_a2 * mu0**2
             sza_c0 = sza_b0 + sza_b1 * mu0 + sza_b2 * mu0**2
-            sza_factor = sza_c1 * log10 (rsnw(1)) + sza_c0
+            sza_factor = sza_c1 * (log10(rsnw(1)) - 6.0) + sza_c0
           endif
-       endif
+      endif
 
       alvdr   = avdr
       alvdf   = avdf
-      alidr   = aidr * sza_factor !sza factor is always larger or equal than 1
+      alidr   = aidr * sza_factor !sza factor is always larger than or equal to 1
       alidf   = aidf
 
-      ! note that we assume the reduced NIR energy absorption
-      ! due to corrected snow albedo are absorbed by the snow single
+      ! note that we assume the reduced NIR energy absorption by snow
+      ! due to corrected snow albedo is absorbed by the snow single
       ! scattering layer only - this is generally true if snow SSL >= 2 cm
       ! by the default model set up:
       !      if snow_depth >= 8 cm, SSL = 4 cm, satisify
       ! esle if snow_depth >= 4 cm, SSL = snow_depth/2 >= 2 cm, satisfy
-      ! esle    snow_depth < 4 cm, SSL = snow_depth/2, may overheat SSL layer
-      fswsfc  = fswsfc - (sza_factor-c1)*aidr*swidr + fsfc*fi
+      ! esle    snow_depth < 4 cm, SSL = snow_depth/2, may overcool SSL layer
+      fswsfc  = fswsfc  + (fsfc- (sza_factor-c1)*aidr*swidr)*fi
       fswint  = fswint  + fint *fi
       fswthru = fswthru + fthru*fi
 
