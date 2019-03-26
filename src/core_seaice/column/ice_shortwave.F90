@@ -4384,17 +4384,10 @@
          mu_75  =  0.2588_dbl_kind       ! cosine of 75 degree
 
       real (kind=dbl_kind) :: &
-<<<<<<< HEAD
-         sza_c1       , & ! parameter for high sza adjustment
-         sza_c0       , & ! parameter for high sza adjustment
-         sza_factor   , & ! parameter for high sza adjustment
-         mu0
-=======
          sza_c1       , & ! coefficient, SZA parameteirzation
          sza_c0       , & ! coefficient, SZA parameterization
          sza_factor   , & ! factor used to adjust NIR direct albedo
          mu0              ! incident solar zenith angle
->>>>>>> 2e4f885a9edaa1311627f0612b34138af6c8dfaf
 
       ! 5-bands ice surface scattering layer (ssl) iops to match SNICAR calculations
       ! note by Cheng Dang:
@@ -5317,11 +5310,7 @@
       !      if snow_depth >= 8 cm, SSL = 4 cm, satisify
       ! esle if snow_depth >= 4 cm, SSL = snow_depth/2 >= 2 cm, satisfy
       ! esle    snow_depth < 4 cm, SSL = snow_depth/2, may overcool SSL layer
-<<<<<<< HEAD
-      fswsfc  = fswsfc  + (fsfc- (sza_factor-c1)*aidr*swidr)*fi
-=======
       fswsfc  = fswsfc  + (fsfc - (sza_factor-c1)*aidr*swidr)*fi
->>>>>>> 2e4f885a9edaa1311627f0612b34138af6c8dfaf
       fswint  = fswint  + fint *fi
       fswthru = fswthru + fthru*fi
 
