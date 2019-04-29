@@ -4173,7 +4173,7 @@
          delr    , & ! snow grain radius interpolation parameter
       ! inherent optical properties (iop) for snow
          Qs      , & ! Snow extinction efficiency
-         ks      , & ! Snow extinction coefficient (/m)
+         ks      , & ! Snow mass extinction coefficient (m^2/kg)
          ws      , & ! Snow single scattering albedo
          gs          ! Snow asymmetry parameter
 
@@ -4719,7 +4719,7 @@
               ! ks = Qs*((rhosnw(ksnow)/rhoi)*3._dbl_kind / &
               !      (4._dbl_kind*rsnw(ksnow)*1.0e-6_dbl_kind))
               tau(k) = (ks*rhosnw(ksnow) + kabs_chl_5bd(ns,k))*dzk(k)
-              w0(k)  = ks/(ks + kabs_chl_5bd(ns,k))*ws
+              w0(k) = (ks*rhosnw(ksnow))/(ks*rhosnw(ksnow) + kabs_chl_5bd(ns,k)) * ws
               g(k)   = gs
             enddo       ! k
           elseif (nsky == 2) then ! diffuse  incident
@@ -4754,7 +4754,7 @@
               ! ks = Qs*((rhosnw(ksnow)/rhoi)*3._dbl_kind / &
               ! (4._dbl_kind*rsnw(ksnow)*1.0e-6_dbl_kind))
               tau(k) = (ks*rhosnw(ksnow) + kabs_chl_5bd(ns,k))*dzk(k)
-              w0(k)  = ks/(ks + kabs_chl_5bd(ns,k)) *ws
+              w0(k) = (ks*rhosnw(ksnow))/(ks*rhosnw(ksnow) + kabs_chl_5bd(ns,k)) * ws
               g(k)   = gs
             enddo       ! k
           endif ! end if nsky for snow IOPs assignment
