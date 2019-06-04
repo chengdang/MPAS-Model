@@ -22,13 +22,34 @@
         filename_interval="01-00-00_00:00:00"
         clobber_mode="replace_files"
         output_interval="00-01-00_00:00:00" >
+	<stream name="mesh"/>
 	<var name="xtime"/>
 	<var name="daysSinceStartOfSim"/>
+	<var name="uVelocityGeo"/>
+	<var name="vVelocityGeo"/>
 	<var name="iceAreaCell"/>
 	<var name="iceVolumeCell"/>
 	<var name="snowVolumeCell"/>
-	<var name="uVelocityGeo"/>
-	<var name="vVelocityGeo"/>
+	<var name="iceAgeCell"/>
+	<var name="iceAreaCategory"/>
+	<var name="iceVolumeCategory"/>
+	<var name="snowVolumeCategory"/>
+	<var name="surfaceTemperature"/>
+	<var name="shortwaveDown"/>
+	<var name="snowiceFormation"/>
+	<var name="snowThicknessChange"/>
+	<var name="snowAlbedoCell"/>
+	<var name="bareIceAlbedoCell"/>
+	<var name="pondAlbedoCell"/>
+	<var name="iceEnthalpyCell"/>
+	<var name="iceSalinityCell"/>
+	<var name="snowIceMass"/>
+	<var name="snowLiquidMass"/>
+	<var name="snowDensity"/>
+	<var name="snowGrainRadius"/>
+	<var name="snowIceMassCell"/>
+	<var name="snowLiquidMassCell"/>
+	<var name="snowDensityCell"/>
 </stream>
 
 <immutable_stream name="LYqSixHourlyForcing"
@@ -64,6 +85,12 @@
     <var name="bergFreshwaterFluxData"/>
     <var name="xtime" />
 </stream>
+
+<immutable_stream name="SnowAgingPropertiesInput"
+                  type="input"
+                  filename_template="forcing/snicar_drdt_bst_fit_60_c04262019.nc"
+                  filename_interval="none"
+                  input_interval="initial_only" />
 
 <stream name="abort_block"
         type="output"
@@ -274,6 +301,13 @@
 	<var name="meltPondAreaFinalArea"/>
 	<var name="meltPondDepthFinalArea"/>
 	<var name="meltPondLidThicknessFinalArea"/>
+	<var name="snowIceMass"/>
+	<var name="snowLiquidMass"/>
+	<var name="snowDensity"/>
+	<var name="snowGrainRadius"/>
+	<var name="snowIceMassCell"/>
+	<var name="snowLiquidMassCell"/>
+	<var name="snowDensityCell"/>
 
 </stream>
 

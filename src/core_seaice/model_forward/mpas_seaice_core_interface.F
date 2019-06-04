@@ -1,10 +1,3 @@
-! Copyright (c) 2013,  Los Alamos National Security, LLC (LANS)
-! and the University Corporation for Atmospheric Research (UCAR).
-!
-! Unless noted otherwise source code is licensed under the BSD license.
-! Additional copyright and license information can be found in the LICENSE file
-! distributed with this code, or at http://mpas-dev.github.com/license.html
-!
 module seaice_core_interface
 
    use mpas_derived_types
@@ -110,6 +103,9 @@ module seaice_core_interface
 
       ! set up analysis member packages
       call seaice_analysis_setup_packages(configPool, packagePool, iocontext, ierr)
+
+      ! icebergs
+      call setup_packages_bergs(configPool, packagePool, ierr)
 
       ! testing system test
       call setup_packages_other(configPool, packagePool, ierr)
@@ -257,7 +253,9 @@ module seaice_core_interface
           config_use_humics, &
           config_use_DON, &
           config_use_iron, &
-          config_use_zaerosols
+          config_use_zaerosols, &
+          config_use_snow_grain_radius, &
+          config_use_effective_snow_density
 
      logical, pointer :: &
           pkgColumnTracerIceAgeActive, &
@@ -289,7 +287,9 @@ module seaice_core_interface
           pkgTracerVerticalDONActive, &
           pkgTracerVerticalIronActive, &
           pkgTracerZAerosolsActive, &
-          pkgTracerZSalinityActive
+          pkgTracerZSalinityActive, &
+          pkgColumnTracerEffectiveSnowDensityActive, &
+          pkgColumnTracerSnowGrainRadiusActive
 
      ! other packages
      logical, pointer :: &
@@ -356,6 +356,8 @@ module seaice_core_interface
      !pkgTracerVerticalIron
      !pkgTracerZAerosols
      !pkgTracerZSalinity
+     !pkgColumnTracerEffectiveSnowDensity
+     !pkgColumnTracerSnowGrainRadius
 
      call MPAS_pool_get_config(configPool, "config_use_ice_age", config_use_ice_age)
      call MPAS_pool_get_config(configPool, "config_use_first_year_ice", config_use_first_year_ice)
@@ -380,6 +382,8 @@ module seaice_core_interface
      call MPAS_pool_get_config(configPool, "config_use_DON", config_use_DON)
      call MPAS_pool_get_config(configPool, "config_use_iron", config_use_iron)
      call MPAS_pool_get_config(configPool, "config_use_zaerosols", config_use_zaerosols)
+     call MPAS_pool_get_config(configPool, "config_use_effective_snow_density", config_use_effective_snow_density)
+     call MPAS_pool_get_config(configPool, "config_use_snow_grain_radius", config_use_snow_grain_radius)
 
      call MPAS_pool_get_package(packagePool, "pkgColumnTracerIceAgeActive", pkgColumnTracerIceAgeActive)
      call MPAS_pool_get_package(packagePool, "pkgColumnTracerFirstYearIceActive", pkgColumnTracerFirstYearIceActive)
@@ -411,6 +415,8 @@ module seaice_core_interface
      call MPAS_pool_get_package(packagePool, "pkgTracerVerticalIronActive", pkgTracerVerticalIronActive)
      call MPAS_pool_get_package(packagePool, "pkgTracerZAerosolsActive", pkgTracerZAerosolsActive)
      call MPAS_pool_get_package(packagePool, "pkgTracerZSalinityActive", pkgTracerZSalinityActive)
+     call MPAS_pool_get_package(packagePool, "pkgColumnTracerEffectiveSnowDensityActive", pkgColumnTracerEffectiveSnowDensityActive)
+     call MPAS_pool_get_package(packagePool, "pkgColumnTracerSnowGrainRadiusActive", pkgColumnTracerSnowGrainRadiusActive)
 
      use_meltponds = (config_use_cesm_meltponds .or. config_use_level_meltponds .or. config_use_topo_meltponds)
 
@@ -446,6 +452,9 @@ module seaice_core_interface
      pkgTracerZAerosolsActive            = config_use_zaerosols
      pkgTracerZSalinityActive            = config_use_vertical_zsalinity
 
+     pkgColumnTracerEffectiveSnowDensityActive = config_use_effective_snow_density
+     pkgColumnTracerSnowGrainRadiusActive = config_use_snow_grain_radius
+
      if (.not. config_use_column_package) then
         pkgColumnTracerIceAgeActive       = .false.
         pkgColumnTracerFirstYearIceActive = .false.
@@ -477,6 +486,8 @@ module seaice_core_interface
         pkgTracerVerticalIronActive         = .false.
         pkgTracerZAerosolsActive            = .false.
         pkgTracerZSalinityActive            = .false.
+        pkgColumnTracerEffectiveSnowDensityActive = .false.
+        pkgColumnTracerSnowGrainRadiusActive      = .false.
      endif
 
      if (.not. config_use_column_biogeochemistry .and. config_use_column_package) then
@@ -531,6 +542,43 @@ module seaice_core_interface
 
    !***********************************************************************
    !
+   !  routine setup_packages_bergs
+   !
+   !> \brief   Setup icebergs package
+   !> \author  Darin Comeau
+   !> \date    19 May 2017
+   !> \details This routine is intended to set the icebergs package PkgBergs
+   !> as active/deactive based on the namelist option config_use_bergs.
+   !
+   !-----------------------------------------------------------------------
+
+   subroutine setup_packages_bergs(configPool, packagePool, ierr)!{{{
+
+     type (mpas_pool_type), intent(in) :: configPool
+     type (mpas_pool_type), intent(in) :: packagePool
+     integer, intent(out) :: ierr
+
+          ! icebergs package
+     logical, pointer :: &
+          config_use_data_icebergs
+
+     logical, pointer :: &
+          pkgBergsActive
+
+     ierr = 0
+
+     !-----------------------------------------------------------------------
+     ! iceberg routines
+     !-----------------------------------------------------------------------
+
+     call MPAS_pool_get_config(configPool, "config_use_data_icebergs", config_use_data_icebergs)
+     call MPAS_pool_get_package(packagePool, "pkgBergsActive", pkgBergsActive)
+     pkgBergsActive = config_use_data_icebergs
+
+   end subroutine setup_packages_bergs!}}}
+
+   !***********************************************************************
+   !
    !  routine setup_packages_other
    !
    !> \brief
@@ -549,6 +597,7 @@ module seaice_core_interface
 
      logical, pointer :: &
           config_use_forcing, &
+          config_use_data_icebergs, &
           config_testing_system_test, &
           config_use_snicar
 
@@ -564,11 +613,12 @@ module seaice_core_interface
      ! pkgForcing
 
      call MPAS_pool_get_config(configPool, "config_use_forcing", config_use_forcing)
+     call MPAS_pool_get_config(configPool, "config_use_data_icebergs", config_use_data_icebergs)
 
      call MPAS_pool_get_package(packagePool, "pkgForcingActive", pkgForcingActive)
 
      ! see if we are using the forcing system
-     if (config_use_forcing) then
+     if (config_use_forcing .or. config_use_data_icebergs) then
 
         pkgForcingActive = .true.
 

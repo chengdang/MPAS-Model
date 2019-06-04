@@ -96,7 +96,7 @@ contains
 
     ! initialize forcing
     call mpas_log_write(" Initialize forcing...")
-    call seaice_forcing_init(domain)
+    call seaice_forcing_init(domain, clock)
 
     ! init dynamics
     call mpas_log_write(" Initialize velocity solver...")
@@ -605,7 +605,8 @@ contains
     integer :: &
          iCell, &
          iCategory, &
-         iIceLayer
+         iIceLayer, &
+         iSnowLayer
 
     real(kind=RKIND), parameter :: &
          initialCategorySnowThickness = 0.2_RKIND
@@ -688,8 +689,9 @@ contains
           snowVolumeCategory(1,:,iCell) = 0.0_RKIND
 
           surfaceTemperature(1,:,iCell) = seaFreezingTemperature(iCell)
-
-          snowEnthalpy(1,:,iCell) = colpkg_enthalpy_snow(0.0_RKIND)
+          do iSnowLayer = 1, nSnowLayers
+             snowEnthalpy(iSnowLayer,:,iCell) = colpkg_enthalpy_snow(0.0_RKIND)
+          end do
 
        endif
 
