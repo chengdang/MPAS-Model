@@ -1,10 +1,3 @@
-! Copyright (c) 2015,  Los Alamos National Security, LLC (LANS)
-! and the University Corporation for Atmospheric Research (UCAR).
-!
-! Unless noted otherwise source code is licensed under the BSD license.
-! Additional copyright and license information can be found in the LICENSE file
-! distributed with this code, or at http://mpas-dev.github.com/license.html
-!
 !|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 !
 !  mpas_seaice_advection_incremental_remap
@@ -46,20 +39,20 @@ module seaice_advection_incremental_remap
    ! variables private to this module
 
    type :: geometric_avg_cell_type
-      real(kind=RKIND), dimension(:), pointer :: x    => null()   ! grid cell average of x
-      real(kind=RKIND), dimension(:), pointer :: y    => null()   ! grid cell average of y
-      real(kind=RKIND), dimension(:), pointer :: xx   => null()   ! grid cell average of x^2
-      real(kind=RKIND), dimension(:), pointer :: xy   => null()   ! grid cell average of x*y
-      real(kind=RKIND), dimension(:), pointer :: yy   => null()   ! grid cell average of y^2
-      real(kind=RKIND), dimension(:), pointer :: xxx  => null()   ! grid cell average of x^3
-      real(kind=RKIND), dimension(:), pointer :: xxy  => null()   ! grid cell average of x^2*y
-      real(kind=RKIND), dimension(:), pointer :: xyy  => null()   ! grid cell average of x*y^2
-      real(kind=RKIND), dimension(:), pointer :: yyy  => null()   ! grid cell average of y^3
-      real(kind=RKIND), dimension(:), pointer :: xxxx => null()   ! grid cell average of x^4
-      real(kind=RKIND), dimension(:), pointer :: xxxy => null()   ! grid cell average of x^3*y
-      real(kind=RKIND), dimension(:), pointer :: xxyy => null()   ! grid cell average of x^2*y^2
-      real(kind=RKIND), dimension(:), pointer :: xyyy => null()   ! grid cell average of x*y^3
-      real(kind=RKIND), dimension(:), pointer :: yyyy => null()   ! grid cell average of y^4
+      real(kind=RKIND), dimension(:), contiguous, pointer :: x    => null()   ! grid cell average of x
+      real(kind=RKIND), dimension(:), contiguous, pointer :: y    => null()   ! grid cell average of y
+      real(kind=RKIND), dimension(:), contiguous, pointer :: xx   => null()   ! grid cell average of x^2
+      real(kind=RKIND), dimension(:), contiguous, pointer :: xy   => null()   ! grid cell average of x*y
+      real(kind=RKIND), dimension(:), contiguous, pointer :: yy   => null()   ! grid cell average of y^2
+      real(kind=RKIND), dimension(:), contiguous, pointer :: xxx  => null()   ! grid cell average of x^3
+      real(kind=RKIND), dimension(:), contiguous, pointer :: xxy  => null()   ! grid cell average of x^2*y
+      real(kind=RKIND), dimension(:), contiguous, pointer :: xyy  => null()   ! grid cell average of x*y^2
+      real(kind=RKIND), dimension(:), contiguous, pointer :: yyy  => null()   ! grid cell average of y^3
+      real(kind=RKIND), dimension(:), contiguous, pointer :: xxxx => null()   ! grid cell average of x^4
+      real(kind=RKIND), dimension(:), contiguous, pointer :: xxxy => null()   ! grid cell average of x^3*y
+      real(kind=RKIND), dimension(:), contiguous, pointer :: xxyy => null()   ! grid cell average of x^2*y^2
+      real(kind=RKIND), dimension(:), contiguous, pointer :: xyyy => null()   ! grid cell average of x*y^3
+      real(kind=RKIND), dimension(:), contiguous, pointer :: yyyy => null()   ! grid cell average of y^4
    end type geometric_avg_cell_type
 
    ! parameters private to this module
@@ -2345,7 +2338,6 @@ contains
   subroutine seaice_run_advection_incremental_remap(&
        domain,      &
        clock,       &
-       ierr,        &
        timeLevelIn, &
        updateHaloInitIn,  &
        updateHaloFinalIn)
@@ -2360,9 +2352,6 @@ contains
 
     type (MPAS_Clock_type), intent(in) :: &
          clock     !< Input: clock
-
-    integer, intent(inout) :: &
-         ierr      !< Input/Output: error code
 
     integer, intent(in), optional :: &
          timeLevelIn    !< Input: time level of input fields (1 or 2)
@@ -2404,6 +2393,9 @@ contains
     ! dynamics time step
     real(kind=RKIND), pointer :: &
          dynamicsTimeStep
+
+    logical, pointer :: &
+         abortFlag ! abort flag
 
     ! assign pointers
     dminfo => domain % dminfo
@@ -2469,8 +2461,8 @@ contains
              else
 
                 ! with reuse
-                call mpas_dmpar_exch_group_reuse_halo_exch(domain, 'velocityHaloExchangeGroup', iErr=ierr)
-                if (ierr /= MPAS_DMPAR_NOERR) then
+                call mpas_dmpar_exch_group_reuse_halo_exch(domain, 'velocityHaloExchangeGroup', iErr=ierrHalo)
+                if (ierrHalo /= MPAS_DMPAR_NOERR) then
                    call MPAS_log_write("failure to perform reuse halo exchange for velocityHaloExchangeGroup", MPAS_LOG_CRIT)
                 endif
 
@@ -2569,15 +2561,12 @@ contains
             domain, &
             block, &
             dynamicsTimeStep, &
-            tracersHead, &
-            ierr)
-       if (ierr > 0) exit
+            tracersHead)
 
        block  => block % next
 
     enddo  ! associated(block)
     call mpas_timer_stop("incr remap blocks")
-    if (ierr > 0) return
 
     ! Optional check for conservation of mass and mass*tracer
     ! Note: This check must be done outside the block loop because it requires global sums
@@ -2588,9 +2577,9 @@ contains
        if (verboseRun) call mpas_log_write('Check conservation')
 
        call mpas_timer_start("incr remap tracer cons check")
-       call check_tracer_conservation(dminfo, tracersHead, ierr)
+       call check_tracer_conservation(dminfo, tracersHead, abortFlag)
        call mpas_timer_stop("incr remap tracer cons check")
-       if (ierr > 0) return
+       call seaice_check_critical_error(domain, abortFlag)
 
     endif
 
@@ -2604,9 +2593,9 @@ contains
        if (verboseRun) call mpas_log_write('Check monotonicity')
 
        call mpas_timer_start("incr remap tracer mono check")
-       call check_tracer_monotonicity(domain, tracersHead, ierr)
+       call check_tracer_monotonicity(domain, tracersHead, abortFlag)
        call mpas_timer_stop("incr remap tracer mono check")
-       if (ierr > 0) return
+       call seaice_check_critical_error(domain, abortFlag)
 
     endif
 
@@ -2753,7 +2742,6 @@ contains
        block,       &
        dt,          &
        tracersHead, &
-       ierr,        &
        timeLevelIn)
 
     ! in/out arguments
@@ -2765,9 +2753,6 @@ contains
 
     real(kind=RKIND), intent(in) :: &
          dt           !< Input: time step
-
-    integer, intent(inout) :: &
-         ierr         !< Input/Output: error code
 
     type(tracer_type), pointer :: &
          tracersHead  !< Input/output: pointer to first element of linked list of tracers
@@ -2889,6 +2874,9 @@ contains
     type(tracer_type), pointer :: thisTracer
     integer :: n, m, iEdge, iCat, iLayer, iCell
     integer :: nCategories, nLayers, count
+
+    logical :: &
+         abortFlag ! flag if code aborting
 
     logical, pointer :: &
          configConservationCheck, & ! namelist configuration whether perform conservation check
@@ -3176,6 +3164,7 @@ contains
     !-------------------------------------------------------------------
 
     call mpas_timer_start("incr remap integrate fluxes")
+    abortFlag = .false.
     call integrate_fluxes_over_triangles(&
          tracersHead,          &
          nCells,               &
@@ -3188,12 +3177,10 @@ contains
          indexToCellID,        &
          indexToEdgeID,        &
          block,                &
-         ierr)
+         abortFlag)
     call mpas_timer_stop("incr remap integrate fluxes")
-    if (ierr > 0) then
-       call seaice_critical_error_write_block(domain, block)
-       return
-    endif
+    call seaice_critical_error_write_block(domain, block, abortFlag)
+    call seaice_check_critical_error(domain, abortFlag)
 
     if (verboseFluxes .and. etestOnProc .and. block % localBlockID == etestBlockID) then
        iEdge = etest
@@ -3288,6 +3275,7 @@ contains
     !-------------------------------------------------------------------
 
     call mpas_timer_start("incr remap update tracers")
+    abortFlag = .false.
     call update_mass_and_tracers(&
          nCellsSolve,      &
          nEdgesOnCell,     &
@@ -3298,12 +3286,10 @@ contains
          indexToCellID,    &
          indexToEdgeID,    &
          block, &
-         ierr)
+         abortFlag)
     call mpas_timer_stop("incr remap update tracers")
-    if (ierr > 0) then
-       call seaice_critical_error_write_block(domain, block)
-       return
-    endif
+    call seaice_critical_error_write_block(domain, block, abortFlag)
+    call seaice_check_critical_error(domain, abortFlag)
 
     !-------------------------------------------------------------------
     ! Compute final sums of mass*tracer over the locally owned cells
@@ -4272,7 +4258,7 @@ contains
          mask                !< Input: integer mask for parent tracer;
                              !         = 1 where field values for this tracer are physically meaningful, else = 0
 
-    real(kind=RKIND), dimension(:,:), intent(out) :: &
+    real(kind=RKIND), dimension(:,:), contiguous, intent(out) :: &
          xGrad, yGrad        !< Output: x and y components of the gradient
 
     integer, dimension(:), intent(in) ::  &
@@ -4289,29 +4275,28 @@ contains
     integer :: iCell, iEdge, iEdgeOnCell, iCellNeighbor
 
     real(kind=RKIND) :: &
-         signGradient      ! = 1 or -1, depending on which direction is taken as positive at a given edge
+         signGradient,  &  ! = 1 or -1, depending on which direction is taken as positive at a given edge
+         tempGrad
 
     real(kind=RKIND), dimension(:,:), allocatable ::   &
          normalGrad,     & ! normal components of the gradient, defined on cell edges
-         globalGrad,     & ! gradient at cell center, in global x/y/z coordinates
-         globalGradRotate  ! rotated globalGrad vector
+         globalGrad        ! gradient at cell center, in global x/y/z coordinates
 
-    real(kind=RKIND), dimension(:), allocatable ::   &
-         zGrad             ! diagnostic only; should be much smaller than xGrad and yGrad
+    !real(kind=RKIND), dimension(:), allocatable ::   &
+    !     zGrad             ! diagnostic only; should be much smaller than xGrad and yGrad
 
     ! find dimensions and allocate arrays
     nCategories = size(field,1)
-    allocate(zGrad(nCategories))
+    !allocate(zGrad(nCategories))
     allocate(normalGrad(nCategories,maxEdges))
     allocate(globalGrad(nCategories,3))
-    if (config_rotate_cartesian_grid) allocate(globalGradRotate(nCategories,3))
 
     ! initialize the gradient
     xGrad(:,:) = 0.0_RKIND
     yGrad(:,:) = 0.0_RKIND
-    zGrad(:) = 0.0_RKIND  ! diagnostic only
+    !zGrad(:) = 0.0_RKIND  ! diagnostic only
 
-    ! loop over cells
+    !$omp parallel do default(shared) private(normalGrad,globalGrad,iEdgeOnCell,iCellNeighbor,iEdge,iCat,signGradient,tempGrad)
     do iCell = 1, nCells
 
        if (maskCell(iCell) == 1) then  ! ice is present in the cell
@@ -4343,18 +4328,9 @@ contains
 
                       normalGrad(iCat,iEdgeOnCell) = signGradient * (field(iCat,iCellNeighbor) - field(iCat,iCell)) / dcEdge(iEdge)
 
-                   else   ! either or both field values do not have physical meaning; set gradient component = 0
-
-                      normalGrad(iCat,iEdgeOnCell) = 0.0_RKIND
-
                    endif
 
                 enddo   ! iCat
-
-             else   ! there is no cell neighbor on this edge
-
-                ! set gradient component = 0
-                normalGrad(:,iEdgeOnCell) = 0.0_RKIND
 
              endif
 
@@ -4373,10 +4349,11 @@ contains
           !TODO - Rotate the gradient vector if on a plane?
 
           if (config_rotate_cartesian_grid .and. on_a_sphere) then
-             globalGradRotate(:,1) = -globalGrad(:,3)   ! xR = -z
-             globalGradRotate(:,2) =  globalGrad(:,2)   ! yR = y
-             globalGradRotate(:,3) =  globalGrad(:,1)   ! zR = x
-             globalGrad(:,:) = globalGradRotate(:,:)
+             do iCat = 1, nCategories
+                tempGrad = globalGrad(iCat,1)
+                globalGrad(iCat,1) = -globalGrad(iCat,3) ! xR = -z
+                globalGrad(iCat,3) =  tempGrad           ! zR = x
+             enddo   ! iCat
           endif
 
           ! transform from global x/y/z coordinates to local east/west coordinates
@@ -4392,10 +4369,9 @@ contains
                             + transGlobalToCell(2,3,iCell) * globalGrad(:,3)
 
              ! Note: The zGrad component is never used; it is simply computed as a diagnostic
-             !TODO - Comment out zGrad computation?
-             zGrad(:) = transGlobalToCell(3,1,iCell) * globalGrad(:,1)  &
-                      + transGlobalToCell(3,2,iCell) * globalGrad(:,2)  &
-                      + transGlobalToCell(3,3,iCell) * globalGrad(:,3)
+             !zGrad(:) = transGlobalToCell(3,1,iCell) * globalGrad(:,1)  &
+             !         + transGlobalToCell(3,2,iCell) * globalGrad(:,2)  &
+             !         + transGlobalToCell(3,3,iCell) * globalGrad(:,3)
 
           else  ! on a plane; do a simple copy
 
@@ -4419,18 +4395,19 @@ contains
                      realArgs=(/field(iCatTest,iCellNeighbor), normalGrad(iCatTest,iEdgeOnCell)/))
              enddo
              call mpas_log_write(' ')
-             call mpas_log_write('Unlimited center gradient: $r $r $r', &
-                  realArgs=(/xGrad(iCatTest,iCell), yGrad(iCatTest,iCell), zGrad(iCatTest)/))
+             call mpas_log_write('Unlimited center gradient: $r $r', &
+                  realArgs=(/xGrad(iCatTest,iCell), yGrad(iCatTest,iCell)/))
+             !call mpas_log_write('Unlimited center gradient: $r $r $r', &
+             !     realArgs=(/xGrad(iCatTest,iCell), yGrad(iCatTest,iCell), zGrad(iCatTest)/))
           endif
        endif
 
     enddo  ! iCell
 
     ! cleanup
-    deallocate(zGrad)
+    !deallocate(zGrad)
     deallocate(normalGrad)
     deallocate(globalGrad)
-    if (config_rotate_cartesian_grid) deallocate(globalGradRotate)
 
   end subroutine compute_gradient_2d
 
@@ -4504,7 +4481,7 @@ contains
          mask                !< Input: integer mask for parent tracer;
                              !         = 1 where field values for this tracer are physically meaningful, else = 0
 
-    real(kind=RKIND), dimension(:,:,:), intent(out) :: &
+    real(kind=RKIND), dimension(:,:,:), contiguous, intent(out) :: &
          xGrad, yGrad        !< Output: x and y components of the gradient
 
     integer, dimension(:), intent(in) ::  &
@@ -4522,29 +4499,27 @@ contains
 
     real(kind=RKIND), dimension(:,:,:), allocatable ::   &
          normalGrad,     & ! normal components of the gradient, defined on cell edges
-         globalGrad,     & ! gradient at cell center, in global x/y/z coordinates
-         globalGradRotate  ! rotated globalGrad vector
+         globalGrad        ! gradient at cell center, in global x/y/z coordinates
 
     real(kind=RKIND) :: &
          signGradient      ! = 1 or -1, depending on which direction is taken as positive at a given edge
 
-    real(kind=RKIND), dimension(:,:), allocatable :: &
-         zGrad             ! diagnostic only; should be much smaller than xGrad and yGrad
+    !real(kind=RKIND), dimension(:,:), allocatable :: &
+    !     zGrad             ! diagnostic only; should be much smaller than xGrad and yGrad
 
     ! find dimensions and allocate arrays
     nLayers = size(field,1)
     nCategories = size(field,2)
-    allocate(zGrad(nLayers,nCategories))
+    !allocate(zGrad(nLayers,nCategories))
     allocate(normalGrad(nLayers,nCategories,maxEdges))
     allocate(globalGrad(nLayers,nCategories,3))
-    if (config_rotate_cartesian_grid) allocate(globalGradRotate(nLayers,nCategories,3))
 
     ! initialize the gradient
     xGrad(:,:,:) = 0.0_RKIND
     yGrad(:,:,:) = 0.0_RKIND
-    zGrad(:,:) = 0.0_RKIND     ! diagnostic only
+    !zGrad(:,:) = 0.0_RKIND     ! diagnostic only
 
-    ! loop over cells
+    !$omp parallel do default(shared) private(normalGrad,globalGrad,iEdgeOnCell,iCellNeighbor,iEdge,iCat,iLayer,signGradient)
     do iCell = 1, nCells
 
        if (maskCell(iCell) == 1) then  ! ice is present in the cell
@@ -4579,19 +4554,10 @@ contains
                          normalGrad(iLayer,iCat,iEdgeOnCell) = &
                               signGradient * (field(iLayer,iCat,iCellNeighbor) - field(iLayer,iCat,iCell)) / dcEdge(iEdge)
 
-                      else   ! either or both field values do not have physical meaning; set gradient component = 0
-
-                         normalGrad(iLayer,iCat,iEdgeOnCell) = 0.0_RKIND
-
                       endif
 
                    enddo   ! iCat
                 enddo      ! iLayer
-
-             else   ! there is no cell neighbor on this edge
-
-                ! set gradient component = 0
-                normalGrad(:,:,iEdgeOnCell) = 0.0_RKIND
 
              endif
 
@@ -4610,10 +4576,10 @@ contains
           !TODO - Rotate the gradient vector if on a plane?
 
           if (config_rotate_cartesian_grid .and. on_a_sphere) then
-             globalGradRotate(:,:,1) = -globalGrad(:,:,3)   ! xR = -z
-             globalGradRotate(:,:,2) =  globalGrad(:,:,2)   ! yR = y
-             globalGradRotate(:,:,3) =  globalGrad(:,:,1)   ! zR = x
-             globalGrad(:,:,:) = globalGradRotate(:,:,:)
+             ! reusing normalGrad as a temporary variable to rotate globalGrad
+             normalGrad(:,:,1) =  globalGrad(:,:,1)   ! temp
+             globalGrad(:,:,1) = -globalGrad(:,:,3)   ! xR = -z
+             globalGrad(:,:,3) =  normalGrad(:,:,1)   ! zR = x
           endif
 
           ! transform from global x/y/z coordinates to local east/west coordinates
@@ -4629,10 +4595,9 @@ contains
                               + transGlobalToCell(2,3,iCell) * globalGrad(:,:,3)
 
              ! Note: The zGrad component is never used; it is simply computed as a diagnostic
-             !TODO - Comment out zGrad computation?
-             zGrad(:,:) = transGlobalToCell(3,1,iCell) * globalGrad(:,:,1)  &
-                        + transGlobalToCell(3,2,iCell) * globalGrad(:,:,2)  &
-                        + transGlobalToCell(3,3,iCell) * globalGrad(:,:,3)
+             !zGrad(:,:) = transGlobalToCell(3,1,iCell) * globalGrad(:,:,1)  &
+             !           + transGlobalToCell(3,2,iCell) * globalGrad(:,:,2)  &
+             !           + transGlobalToCell(3,3,iCell) * globalGrad(:,:,3)
 
           else  ! on a plane; do a simple copy
 
@@ -4656,18 +4621,19 @@ contains
                      realArgs=(/field(iLayerTest,iCatTest,iCellNeighbor), normalGrad(iLayerTest,iCatTest,iEdgeOnCell)/))
              enddo
              call mpas_log_write(' ')
-             call mpas_log_write('Unlimited center gradient: $r $r $r', &
-                  realArgs=(/xGrad(iLayerTest,iCatTest,iCell), yGrad(iLayerTest,iCatTest,iCell), zGrad(iLayerTest,iCatTest)/))
+             call mpas_log_write('Unlimited center gradient: $r $r', &
+                  realArgs=(/xGrad(iLayerTest,iCatTest,iCell), yGrad(iLayerTest,iCatTest,iCell)/))
+             !call mpas_log_write('Unlimited center gradient: $r $r $r', &
+             !     realArgs=(/xGrad(iLayerTest,iCatTest,iCell), yGrad(iLayerTest,iCatTest,iCell), zGrad(iLayerTest,iCatTest)/))
           endif
        endif
 
     enddo  ! iCell
 
     ! cleanup
-    deallocate(zGrad)
+    !deallocate(zGrad)
     deallocate(normalGrad)
     deallocate(globalGrad)
-    if (config_rotate_cartesian_grid) deallocate(globalGradRotate)
 
   end subroutine compute_gradient_3d
 
@@ -4684,6 +4650,7 @@ contains
 !
 !-----------------------------------------------------------------------
 
+!DIR$ ATTRIBUTES FORCEINLINE :: compute_barycenter_coordinates
   subroutine compute_barycenter_coordinates(&
        geomAvgCell,                     &
        iCell,                           &
@@ -4842,30 +4809,30 @@ contains
     integer, intent(in) :: &
          nCells            !< Input: number of cells
 
-    integer, dimension(:), intent(in) :: &
+    integer, dimension(:), contiguous, intent(in) :: &
          nEdgesOnCell      !< Input: number of edges per cell
 
-    integer, dimension(:,:), intent(in) ::  &
+    integer, dimension(:,:), contiguous, intent(in) ::  &
          cellsOnCell       !< Input: cell index for each edge neighbor of a given cell
 
-    real(kind=RKIND), dimension(:,:), intent(in) ::  &
+    real(kind=RKIND), dimension(:,:), contiguous, intent(in) ::  &
          field             !< Input: 2d field for which we are limiting the gradient
 
-    integer, dimension(:,:), intent(in) ::  &
+    integer, dimension(:,:), contiguous, intent(in) ::  &
          fieldMask         !< Input: mask = 1 where field value is physically meaningful, = 0 elsewhere
 
-    real(kind=RKIND), dimension(:,:), intent(in) ::  &
+    real(kind=RKIND), dimension(:,:), contiguous, intent(in) ::  &
          xVertexOnCell,  & !< Input: x (east) coordinate of vertex relative to cell center in local tangent plane
          yVertexOnCell     !< Input: y (north) coordinate of vertex relative to cell center in local tangent plane
 
-    integer, dimension(:), intent(in) :: &
+    integer, dimension(:), contiguous, intent(in) :: &
          maskCell          !< Input: = 1 for cells with ice, else = 0
 
-    real(kind=RKIND), dimension(:,:), intent(in) ::  &
+    real(kind=RKIND), dimension(:,:), contiguous, intent(in) ::  &
          xBarycenter,   &  !< Input: x (east) coordinate of barycenter of this tracer's parent
          yBarycenter       !< Input: y (north) coordinate of barycenter of this tracer's parent
 
-    real(kind=RKIND), dimension(:,:), intent(inout) ::  &
+    real(kind=RKIND), dimension(:,:), contiguous, intent(inout) ::  &
          xGrad,         &  !< Input/output: x (east) component of gradient vector
          yGrad             !< Input/output: y (north) coordinate of barycenter of this tracer's parent
                            !  Gradient components are unlimited on input, limited on output
@@ -4901,7 +4868,8 @@ contains
     allocate(maxLocal(nCategories))
     allocate(minLocal(nCategories))
 
-    ! loop over cells
+    !$omp parallel do default(shared) private(maxNeighbor,minNeighbor,iEdgeOnCell,iCellNeighbor,&
+    !$omp&  iCat,maxLocal,minLocal,iVertex,deviationAtVertex,gradFactor,gradFactor1,gradFactor2)
     do iCell = 1, nCells
 
        if (maskCell(iCell) == 1) then   ! ice is present
@@ -5038,35 +5006,35 @@ contains
     integer, intent(in) :: &
          nCells            !< Input: number of cells
 
-    integer, dimension(:), intent(in) :: &
+    integer, dimension(:), contiguous, intent(in) :: &
          nEdgesOnCell      !< Input: number of edges per cell
 
-    integer, dimension(:,:), intent(in) ::  &
+    integer, dimension(:,:), contiguous, intent(in) ::  &
          cellsOnCell       !< Input: cell index for each edge neighbor of a given cell
 
-    real(kind=RKIND), dimension(:,:,:), intent(in) ::  &
+    real(kind=RKIND), dimension(:,:,:), contiguous, intent(in) ::  &
          field             !< Input: 3d field for which we are limiting the gradient
 
-    integer, dimension(:,:,:), intent(in) ::  &
+    integer, dimension(:,:,:), contiguous, intent(in) ::  &
          fieldMask         !< Input: mask = 1 where field value is physically meaningful, = 0 elsewhere
 
-    real(kind=RKIND), dimension(:,:), intent(in) ::  &
+    real(kind=RKIND), dimension(:,:), contiguous, intent(in) ::  &
          xVertexOnCell,  & !< Input: x (east) coordinate of vertex relative to cell center in local tangent plane
          yVertexOnCell     !< Input: y (north) coordinate of vertex relative to cell center in local tangent plane
 
-    integer, dimension(:), intent(in) :: &
+    integer, dimension(:), contiguous, intent(in) :: &
          maskCell            !< Input: = 1 for cells with ice, else = 0
 
-    real(kind=RKIND), dimension(:,:,:), intent(inout) ::  &
+    real(kind=RKIND), dimension(:,:,:), contiguous, intent(inout) ::  &
          xGrad,         &  !< Input/output: x (east) component of gradient vector
          yGrad             !< Input/output: y (north) coordinate of barycenter of this tracer's parent
                            !  Gradient components are unlimited on input, limited on output
 
-    real(kind=RKIND), dimension(:,:), intent(in), optional ::  &
+    real(kind=RKIND), dimension(:,:), contiguous, intent(in), optional ::  &
          xBarycenter2D, &  !< Input: x (east) coordinate of barycenter of this tracer's 2Dparent
          yBarycenter2D     !< Input: y (north) coordinate of barycenter of this tracer's 2D parent
 
-    real(kind=RKIND), dimension(:,:,:), intent(in), optional ::  &
+    real(kind=RKIND), dimension(:,:,:), contiguous, intent(in), optional ::  &
          xBarycenter3D, &  !< Input: x (east) coordinate of barycenter of this tracer's 3D parent
          yBarycenter3D     !< Input: y (north) coordinate of barycenter of this tracer's 3D parent
 
@@ -5113,7 +5081,8 @@ contains
     allocate(maxLocal(nLayers,nCategories))
     allocate(minLocal(nLayers,nCategories))
 
-    ! loop over cells
+    !$omp parallel do default(shared) private(maxNeighbor,minNeighbor,iEdgeOnCell,iCellNeighbor,&
+    !$omp&  iCat,iLayer,maxLocal,minLocal,iVertex,deviationAtVertex,gradFactor,gradFactor1,gradFactor2)
     do iCell = 1, nCells
 
        if (maskCell(iCell) == 1) then  ! ice is present
@@ -6698,7 +6667,7 @@ contains
        indexToCellID,        &
        indexToEdgeID,        &
        block,                &
-       ierr)
+       abortFlag)
 
     type(tracer_type), pointer :: &
          tracersHead      !< Input/output: pointer to first element of linked list of tracers
@@ -6731,8 +6700,8 @@ contains
     type(block_type), intent(in) :: &
          block             !< Input: local block (diagnostic only)
 
-    integer, intent(inout) :: &
-         ierr              !< Input: error code
+    logical, intent(inout) :: &
+         abortFlag         !< Input: error code
 
     ! local variables
 
@@ -6742,12 +6711,10 @@ contains
          dummyTracer       ! dummy tracer with value of 1 everywhere
 
     integer ::   &
-         iEdge, iCell, iCat, iLayer, iTri, iqp
-
-    integer :: &
          nTriPerEdgeRemap,          & ! number of triangles per edge
          nCategories,               & ! number of ice thickness categories
-         nLayers                      ! number of layers
+         nLayers,                   & ! number of layers
+         iEdge, iCell, iCat, iLayer, iTri, iqp
 
     real(kind=RKIND), dimension(:), allocatable ::   &
          tracerIntegral2D         ! integral over a triangle of mass, mass*tracer, etc.
@@ -6815,13 +6782,10 @@ contains
        else  ! nParents = 1, 2 or 3
 
           parentTracer => thisTracer % parent
-
-       endif
-
-       if (verboseFluxes) then
-          if (thisTracer % nParents > 0) then
+          if (verboseFluxes) then
              call mpas_log_write('Parent: '//trim(parentTracer % tracerName))
           endif
+
        endif
 
        ! Integrate the fluxes of this tracer (for each category and layer) over each triangle of each edge.
@@ -6829,6 +6793,7 @@ contains
 
        if (thisTracer % ndims == 2) then
 
+          !$omp parallel do default(shared) private(iTri,iCell,tracerIntegral2D,iqp,iCat)
           do iEdge = 1, nEdges
              if (maskEdge(iEdge) == 1) then
 
@@ -6836,86 +6801,42 @@ contains
 
                    if (triangleArea(iTri,iEdge) /= 0.0_RKIND) then
 
-                      ! In the following arrays:
-                      ! 1st index of triangleValue2D = category; 2nd index = QP
-                      ! 1st index of center/xGrad/yGrad = category
-                      ! 1st index of xTriangle/yTriangle = QP
-                      ! 1st index of tracerIntegral2D = category
-                      ! 1st index of edgeFlux2D = category
-
                       ! identify the cell where the triangle is located
                       iCell = iCellTriangle(iTri,iEdge)
 
+                      tracerIntegral2D(:) = 0.0_RKIND
                       ! evaluate the tracer at each quadrature point
                       do iqp = 1, nQuadPoints
-                         thisTracer % triangleValue2D(:,iqp,iTri,iEdge) = &
-                              thisTracer % center2D(:,iCell)                             &
-                            + thisTracer % xGrad2D(:,iCell) * xTriangle(iqp,iTri,iEdge)  &
-                            + thisTracer % yGrad2D(:,iCell) * yTriangle(iqp,iTri,iEdge)
-                      enddo
-
-                      ! evaluate the product mass*tracer at each quadrature point (using parent tracer info computed already)
-                      ! In nParents = 0, this is mass
-                      ! If nParents = 1, this is mass*tracer1
-                      ! If nParents = 2, this is mass*tracer1*tracer2
-                      ! If nParents = 3, this is mass*tracer1*tracer2*tracer3
-                      ! Note: Parent tracer must have ndims = 2
-                      thisTracer % triangleValue2D(:,:,iTri,iEdge) = parentTracer % triangleValue2D(:,:,iTri,iEdge)  &
-                                                                     * thisTracer % triangleValue2D(:,:,iTri,iEdge)
-
-                      ! integrate over the triangle by summing over quadrature points
-                      tracerIntegral2D(:) = 0.0_RKIND
-                      do iqp = 1, nQuadPoints
-                         tracerIntegral2D(:) = tracerIntegral2D(:) &
-                                             + weightQuadPoint(iqp) * thisTracer % triangleValue2D(:,iqp,iTri,iEdge)
-                      enddo
-
+                         do iCat = 1, nCategories
+                            ! eval the product mass*tracer at each quadrature point (using parent tracer info computed already)
+                            ! In nParents = 0, this is mass
+                            ! If nParents = 1, this is mass*tracer1
+                            ! If nParents = 2, this is mass*tracer1*tracer2
+                            ! If nParents = 3, this is mass*tracer1*tracer2*tracer3
+                            ! Note: Parent tracer must have ndims = 2
+                            thisTracer % triangleValue2D(iCat,iqp,iTri,iEdge) = &
+                               parentTracer % triangleValue2D(iCat,iqp,iTri,iEdge) * &
+                               ( thisTracer % center2D(iCat,iCell)                              &
+                               + thisTracer %  xGrad2D(iCat,iCell) * xTriangle(iqp,iTri,iEdge)  &
+                               + thisTracer %  yGrad2D(iCat,iCell) * yTriangle(iqp,iTri,iEdge)  &
+                               )
+                            ! integrate over the triangle by summing over quadrature points
+                            tracerIntegral2D(iCat) = tracerIntegral2D(iCat) &
+                               + weightQuadPoint(iqp) * thisTracer % triangleValue2D(iCat,iqp,iTri,iEdge)
+                         enddo ! iCat
+                      enddo    ! iqp
                       ! increment the area-weighted flux across the edge
                       thisTracer % edgeFlux2D(:,iEdge) = thisTracer % edgeFlux2D(:,iEdge) &
                                                        + triangleArea(iTri,iEdge) * tracerIntegral2D(:)
-
                    endif ! triangleArea /= 0
-
                 enddo    ! nTriPerEdgeRemap
-
              endif       ! maskEdge = 1
           enddo          ! nEdges
-
-          ! Check for negative reconstructed ice area
-          if (trim(thisTracer % tracerName) == 'iceAreaCategory') then
-             do iEdge = 1, nEdges
-                do iTri = 1, nTriPerEdgeRemap
-                   if (triangleArea(iTri,iEdge) /= 0.0_RKIND) then
-                      iCell = iCellTriangle(iTri,iEdge)
-                      do iqp = 1, nQuadPoints
-                         do iCat = 1, nCategories
-                            if (thisTracer % triangleValue2D(iCat,iqp,iTri,iEdge) < 0.0_RKIND) then
-                               call mpas_log_write('Negative reconstructed ice area', MPAS_LOG_ERR)
-                               call mpas_log_write('nCells = $i', MPAS_LOG_ERR, intArgs=(/nCells/))
-                               call mpas_log_write('iCat, iCell, global iCell: $i $i $i', MPAS_LOG_ERR, &
-                                    intArgs=(/iCat, iCell, indexToCellID(iCell)/))
-                               call mpas_log_write('iEdge, global iEdge, iTri, iqp: $i $i $i $i', MPAS_LOG_ERR, &
-                                    intArgs=(/iEdge, indexToEdgeID(iEdge), iTri, iqp/))
-                               call mpas_log_write('triangle area: $r', MPAS_LOG_ERR, realArgs=(/triangleArea(iTri,iEdge)/))
-                               call mpas_log_write('tracer val: $r', MPAS_LOG_ERR, realArgs=(/thisTracer % triangleValue2D(iCat,iqp,iTri,iEdge)/))
-                               call mpas_log_write('center val: $r', MPAS_LOG_ERR, realArgs=(/thisTracer % center2D(iCat,iCell)/))
-                               call mpas_log_write('x gradient: $r', MPAS_LOG_ERR, realArgs=(/thisTracer % xGrad2D(iCat,iCell)/))
-                               call mpas_log_write('y gradient: $r', MPAS_LOG_ERR, realArgs=(/thisTracer % yGrad2D(iCat,iCell)/))
-                               call mpas_log_write('IR negative reconstructed ice area (nDims == 2)', MPAS_LOG_ERR)
-                               ierr = SEAICE_ERROR_IR_NEG_AREA
-                               return
-                            endif  ! negative area
-                         enddo   ! iCat
-                      enddo   ! iqp
-                   endif   ! triangleArea > 0
-                enddo   ! iTri
-             enddo   ! iEdge
-          endif   ! iceAreaCategory
-
           deallocate(tracerIntegral2D)
 
        elseif (thisTracer % ndims == 3) then
 
+          !$omp parallel do default(shared) private(iTri,iCell,tracerIntegral3D,iqp,iCat,iLayer)
           do iEdge = 1, nEdges
              if (maskEdge(iEdge) == 1) then
 
@@ -6923,106 +6844,104 @@ contains
 
                    if (triangleArea(iTri,iEdge) /= 0.0_RKIND) then
 
-                      ! In the following arrays:
-                      ! 1st index of triangleValue3D = layer; 2nd index = category; 3rd index = QP
-                      ! 1st index of center/xGrad/yGrad = layer; 2nd index = category
-                      ! 1st index of xTriangle/yTriangle = QP
-                      ! 1st index of tracerIntegral = layer; 2nd index = category
-                      ! 1st index of edgeFlux = layer; 2nd index = category
-
                       ! identify the cell where the triangle is located
                       iCell = iCellTriangle(iTri,iEdge)
 
-                      ! evaluate the tracer at each quadrature point
-                      do iqp = 1, nQuadPoints
-                         thisTracer % triangleValue3D(:,:,iqp,iTri,iEdge) = &
-                              thisTracer % center3D(:,:,iCell)   &
-                            + thisTracer % xGrad3D(:,:,iCell) * xTriangle(iqp,iTri,iEdge)  &
-                            + thisTracer % yGrad3D(:,:,iCell) * yTriangle(iqp,iTri,iEdge)
-                      enddo
-
-                      ! evaluate the product mass*tracer at each quadrature point (using parent tracer info computed already)
-                      ! In nParents = 0, this is mass
-                      ! If nParents = 1, this is mass*tracer1
-                      ! If nParents = 2, this is mass*tracer1*tracer2
-                      ! If nParents = 3, this is mass*tracer1*tracer2*tracer3
-                      ! Note: Parent tracer can have ndims = 2 or 3
-                      if (parentTracer % ndims == 2) then
-                         do iLayer = 1, nLayers
-                            thisTracer % triangleValue3D(iLayer,:,:,iTri,iEdge) = &
-                                 parentTracer % triangleValue2D(:,:,iTri,iEdge) * &
-                                 thisTracer % triangleValue3D(iLayer,:,:,iTri,iEdge)
-                         enddo
-                      else  ! parents has ndims = 3
-                         thisTracer % triangleValue3D(:,:,:,iTri,iEdge) = parentTracer % triangleValue3D(:,:,:,iTri,iEdge) &
-                                                                          * thisTracer % triangleValue3D(:,:,:,iTri,iEdge)
-                      endif
-
-                      ! integrate over the triangle by summing over quadrature points
                       tracerIntegral3D(:,:) = 0.0_RKIND
-                      do iqp = 1, nQuadPoints
-                         tracerIntegral3D(:,:) = tracerIntegral3D(:,:) &
-                                               + weightQuadPoint(iqp) * thisTracer % triangleValue3D(:,:,iqp,iTri,iEdge)
-                      enddo
-
-                      ! increment the area-weighted flux across the edge
-                      thisTracer % edgeFlux3D(:,:,iEdge) = thisTracer % edgeFlux3D(:,:,iEdge) &
-                                                         + triangleArea(iTri,iEdge) * tracerIntegral3D(:,:)
-
-                   endif ! triangleArea /= 0
-
-                enddo    ! nTriPerEdgeRemap
-
-             endif       ! maskEdge = 1
-          enddo          ! nEdges
-
-          ! Check for negative reconstructed ice area
-          if (trim(thisTracer % tracerName) == 'iceAreaCategory') then
-             do iEdge = 1, nEdges
-                do iTri = 1, nTriPerEdgeRemap
-                   if (triangleArea(iTri,iEdge) /= 0.0_RKIND) then
-                      iCell = iCellTriangle(iTri,iEdge)
+                      ! evaluate the tracer at each quadrature point
                       do iqp = 1, nQuadPoints
                          do iCat = 1, nCategories
                             do iLayer = 1, nLayers
-                               if (thisTracer % triangleValue3D(iLayer,iCat,iqp,iTri,iEdge) < 0.0_RKIND) then
-                                  call mpas_log_write('Negative reconstructed ice area', messageType=MPAS_LOG_ERR)
-                                  call mpas_log_write('nCells = $i', messageType=MPAS_LOG_ERR, intArgs=(/nCells/))
-                                  call mpas_log_write('iLayer, iCat, iCell, global iCell: $i $i $i $i', &
-                                       messageType=MPAS_LOG_ERR, &
-                                       intArgs=(/iLayer, iCat, iCell, indexToCellID(iCell)/))
-                                  call mpas_log_write('iEdge, global iEdge, iTri, iqp: $i $i $i $i', &
-                                       messageType=MPAS_LOG_ERR, &
-                                       intArgs=(/iEdge, indexToEdgeID(iEdge), iTri, iqp/))
-                                  call mpas_log_write('triangle area: $r', messageType=MPAS_LOG_ERR, &
-                                       realArgs=(/triangleArea(iTri,iEdge)/))
-                                  call mpas_log_write('tracer val: $r', messageType=MPAS_LOG_ERR, &
-                                       realArgs=(/thisTracer % triangleValue3D(iLayer,iCat,iqp,iTri,iEdge)/))
-                                  call mpas_log_write('center val: $r', messageType=MPAS_LOG_ERR, &
-                                       realArgs=(/thisTracer % center3D(iLayer,iCat,iCell)/))
-                                  call mpas_log_write('x gradient: $r', messageType=MPAS_LOG_ERR, &
-                                       realArgs=(/thisTracer % xGrad3D(iLayer,iCat,iCell)/))
-                                  call mpas_log_write('y gradient: $r', messageType=MPAS_LOG_ERR, &
-                                       realArgs=(/thisTracer % yGrad3D(iLayer,iCat,iCell)/))
-                                  call mpas_log_write('MPAS-seaice: IR negative reconstructed ice area (nDims == 3)', &
-                                       messageType=MPAS_LOG_ERR)
-                                  ierr = SEAICE_ERROR_IR_NEG_AREA
-                                  return
-                               endif  ! negative area
-                            enddo   ! iLayer
-                         enddo   ! iCat
-                      enddo   ! iqp
-                   endif   ! triangleArea > 0
-                enddo   ! iTri
-             enddo   ! iEdge
-          endif   ! iceAreaCategory
-
+                               if (parentTracer % ndims == 2) then
+                                  ! eval the product mass*tracer at each quadrature point (using parent tracer info
+                                  !    computed already)
+                                  ! In nParents = 0, this is mass
+                                  ! If nParents = 1, this is mass*tracer1
+                                  ! If nParents = 2, this is mass*tracer1*tracer2
+                                  ! If nParents = 3, this is mass*tracer1*tracer2*tracer3
+                                  ! Note: Parent tracer can have ndims = 2 or 3
+                                  thisTracer % triangleValue3D(iLayer,iCat,iqp,iTri,iEdge) = &
+                                     parentTracer % triangleValue2D(iCat,iqp,iTri,iEdge) * &
+                                     ( thisTracer % center3D(iLayer,iCat,iCell) &
+                                     + thisTracer %  xGrad3D(iLayer,iCat,iCell) * xTriangle(iqp,iTri,iEdge)  &
+                                     + thisTracer %  yGrad3D(iLayer,iCat,iCell) * yTriangle(iqp,iTri,iEdge)  &
+                                     )
+                               else  ! parents has ndims = 3
+                                  thisTracer % triangleValue3D(iLayer,iCat,iqp,iTri,iEdge) = &
+                                     parentTracer % triangleValue3D(iLayer,iCat,iqp,iTri,iEdge) * &
+                                     ( thisTracer % center3D(iLayer,iCat,iCell) &
+                                     + thisTracer %  xGrad3D(iLayer,iCat,iCell) * xTriangle(iqp,iTri,iEdge)  &
+                                     + thisTracer %  yGrad3D(iLayer,iCat,iCell) * yTriangle(iqp,iTri,iEdge)  &
+                                     )
+                               endif
+                               ! integrate over the triangle by summing over quadrature points
+                               tracerIntegral3D(iLayer,iCat) = tracerIntegral3D(iLayer,iCat) &
+                                  + weightQuadPoint(iqp) * thisTracer % triangleValue3D(iLayer,iCat,iqp,iTri,iEdge)
+                            enddo ! iLayer
+                         enddo    ! iCat
+                      enddo       ! iqp
+                      ! increment the area-weighted flux across the edge
+                      thisTracer % edgeFlux3D(:,:,iEdge) = thisTracer % edgeFlux3D(:,:,iEdge) &
+                                                         + triangleArea(iTri,iEdge) * tracerIntegral3D(:,:)
+                   endif ! triangleArea /= 0
+                enddo    ! nTriPerEdgeRemap
+             endif       ! maskEdge = 1
+          enddo          ! nEdges
           deallocate(tracerIntegral3D)
 
        endif   ! ndims
 
-       ! clean up
+       ! Check for negative reconstructed ice area
+       if (trim(thisTracer % tracerName) == 'iceAreaCategory') then
+          do iEdge = 1, nEdges
+             do iTri = 1, nTriPerEdgeRemap
+                if (triangleArea(iTri,iEdge) /= 0.0_RKIND) then
+                   iCell = iCellTriangle(iTri,iEdge)
+                   do iqp = 1, nQuadPoints
+                      do iCat = 1, nCategories
+                         if (thisTracer % ndims == 2) then
+                            if (thisTracer % triangleValue2D(iCat,iqp,iTri,iEdge) < 0.0_RKIND) then
+                               call mpas_log_write('MPAS-seaice: IR negative reconstructed ice area', messageType=MPAS_LOG_ERR)
+                               call mpas_log_write('nCells, iCat, iCell, global iCell: $i $i $i $i',  messageType=MPAS_LOG_ERR, &
+                                    intArgs=(/nCells, iCat, iCell, indexToCellID(iCell)/))
+                               call mpas_log_write('iEdge, global iEdge, iTri, iqp: $i $i $i $i', messageType=MPAS_LOG_ERR, &
+                                    intArgs=(/iEdge, indexToEdgeID(iEdge), iTri, iqp/))
+                               call mpas_log_write('triangle area, tracer, center, xGrad2D, yGrad2D: $r $r $r $r $r', &
+                                    messageType=MPAS_LOG_CRIT, & ! abort
+                                    realArgs=(/triangleArea(iTri,iEdge), &
+                                               thisTracer%triangleValue2D(iCat,iqp,iTri,iEdge), &
+                                               thisTracer%center2D(iCat,iCell), &
+                                               thisTracer% xGrad2D(iCat,iCell), &
+                                               thisTracer% yGrad2D(iCat,iCell) /))
+                            endif  ! negative 2D area
+                         elseif (thisTracer % ndims == 3) then
+                            do iLayer = 1, nLayers
+                               if (thisTracer % triangleValue3D(iLayer,iCat,iqp,iTri,iEdge) < 0.0_RKIND) then
+                                  call mpas_log_write('MPAS-seaice: IR negative reconstructed ice area', messageType=MPAS_LOG_ERR)
+                                  call mpas_log_write('nCells, iLayer, iCat, iCell, global iCell: $i $i $i $i $i', &
+                                       messageType=MPAS_LOG_ERR, &
+                                       intArgs=(/nCells, iLayer, iCat, iCell, indexToCellID(iCell)/))
+                                  call mpas_log_write('iEdge, global iEdge, iTri, iqp: $i $i $i $i', &
+                                       messageType=MPAS_LOG_ERR, &
+                                       intArgs=(/iEdge, indexToEdgeID(iEdge), iTri, iqp/))
+                                  call mpas_log_write('triangle area, tracer, center, xGrad3D, yGrad3D: $r $r $r $r $r', &
+                                       messageType=MPAS_LOG_CRIT, & ! abort
+                                       realArgs=(/triangleArea(iTri,iEdge), &
+                                                  thisTracer%triangleValue3D(iLayer,iCat,iqp,iTri,iEdge), &
+                                                  thisTracer%center3D(iLayer,iCat,iCell), &
+                                                  thisTracer% xGrad3D(iLayer,iCat,iCell), &
+                                                  thisTracer% yGrad3D(iLayer,iCat,iCell) /))
+                               endif  ! negative 3D area
+                            enddo   ! iLayer
+                         endif   ! ndims
+                      enddo   ! iCat
+                   enddo   ! iqp
+                endif   ! triangleArea > 0
+             enddo   ! iTri
+          enddo   ! iEdge
+       endif   ! iceAreaCategory
 
+       ! clean up
        if (associated(dummyTracer)) then
           if (dummyTracer % ndims == 2) then
              if (associated(dummyTracer % triangleValue2D)) deallocate(dummyTracer % triangleValue2D)
@@ -7204,7 +7123,7 @@ contains
        indexToCellID,    &
        indexToEdgeID,    &
        block,            &
-       ierr)
+       abortFlag)
 
     integer, intent(in) :: &
          nCellsSolve       !< Input: number of locally owned cells to be updated
@@ -7230,8 +7149,8 @@ contains
     type(block_type), intent(in) :: &
          block             !< Input: local block (diagnostic only)
 
-    integer, intent(inout) :: &
-         ierr              !< Input/Output: error code
+    logical, intent(inout) :: &
+         abortFlag         !< Input/Output: error flag
 
     ! local variables
 
@@ -7332,6 +7251,7 @@ contains
 
           allocate (fluxFromCell2D(nCategories))
 
+          !$omp parallel do default(shared) private(fluxFromCell2D,iEdgeOnCell,iEdge,edgeSignOnCell,iCat)
           do iCell = 1, nCellsSolve
 
              fluxFromCell2D = 0.0_RKIND
@@ -7413,6 +7333,7 @@ contains
 
           allocate (fluxFromCell3D(nLayers,nCategories))
 
+          !$omp parallel do default(shared) private(fluxFromCell3D,iEdgeOnCell,iEdge,edgeSignOnCell,iCat,iLayer)
           do iCell = 1, nCellsSolve
 
              fluxFromCell3D = 0.0_RKIND
@@ -7540,7 +7461,7 @@ contains
                            messageType=MPAS_LOG_ERR, &
                            intArgs=(/iCat, iCell, indexToCellID(iCell)/), &
                            realArgs=(/thisTracer % array2D(iCat,iCell)/))
-                      ierr = SEAICE_ERROR_IR_NEG_MASS
+                      abortFlag = .true.
                       return
                    endif
                 enddo
@@ -7556,7 +7477,7 @@ contains
                               messageType=MPAS_LOG_ERR, &
                               intArgs=(/iLayer, iCat, iCell, indexToCellID(iCell)/), &
                               realArgs=(/thisTracer % array3D(iLayer,iCat,iCell)/))
-                         ierr = SEAICE_ERROR_IR_NEG_MASS
+                         abortFlag = .true.
                          return
                       endif
                    enddo
@@ -8184,7 +8105,7 @@ contains
 !
 !-----------------------------------------------------------------------
 
-  subroutine check_tracer_conservation(dminfo, tracersHead, ierr)
+  subroutine check_tracer_conservation(dminfo, tracersHead, abortFlag)
 
     type (dm_info), intent(in) :: dminfo   !< Input: domain info
 
@@ -8192,8 +8113,8 @@ contains
          tracersHead    !< Input/output: pointer to first element of linked list of tracers
                         ! The pointer stays attached to the first tracer, but tracer sums are updated
 
-    integer, intent(inout) :: &
-         ierr           !<Input/Output: error code
+    logical, intent(inout) :: &
+         abortFlag      !< Input/output: abort flag
 
     ! local variables
     type(tracer_type), pointer :: thisTracer
@@ -8249,7 +8170,7 @@ contains
                    call mpas_log_write('Init value, final value: $r $r', MPAS_LOG_ERR, &
                         realArgs=(/thisTracer % globalSumInit2D(iCat), thisTracer % globalSumFinal2D(iCat)/))
                    call mpas_log_write('Difference, ratio: $r $r', MPAS_LOG_ERR, realArgs=(/difference, ratio/))
-                   ierr = SEAICE_ERROR_IR_CONS
+                   abortFlag = .true.
                    return
                 endif
 
@@ -8296,7 +8217,7 @@ contains
                            realArgs=(/thisTracer % globalSumInit3D(iLayer,iCat), thisTracer % globalSumFinal3D(iLayer,iCat)/))
                       call mpas_log_write('Difference, ratio: $r $r', MPAS_LOG_ERR, &
                            realArgs=(/difference, ratio/))
-                      ierr = SEAICE_ERROR_IR_CONS
+                      abortFlag = .true.
                       return
                    endif
 
@@ -8474,7 +8395,7 @@ contains
   !       Might not work to do so without the extended min/max, because local min/max
   !        will not be computed correctly for initially ice-free cells
 
-  subroutine check_tracer_monotonicity(domain, tracersHead, ierr)
+  subroutine check_tracer_monotonicity(domain, tracersHead, abortFlag)
 
     type (domain_type), intent(inout) :: &
          domain        !< Input: domain info
@@ -8483,8 +8404,8 @@ contains
          tracersHead   !< Input/output: pointer to first element of linked list of tracers
                        ! The pointer stays attached to the first tracer, but all tracer sums are updated
 
-    integer, intent(inout) :: &
-         ierr          !<Input/Output: error code
+    logical, intent(inout) :: &
+         abortFlag     !<Input/Output: abort flag
 
     ! local variables
 
@@ -8632,8 +8553,8 @@ contains
                             call mpas_log_write('Tolerance, difference: $r $r', MPAS_LOG_ERR, &
                                  realArgs=(/toleranceMin, thisTracer % localMin2D(iCat,iCell) - thisTracer % array2D(iCat,iCell)/))
                             call mpas_log_write('IR advection, monotonicity violation (min, nDims == 2)', MPAS_LOG_ERR)
-                            ierr = SEAICE_ERROR_IR_MONO
-                            call seaice_critical_error_write_block(domain, block)
+                            abortFlag = .true.
+                            call seaice_critical_error_write_block(domain, block, abortFlag)
                             return
 
                          elseif (thisTracer % array2D(iCat,iCell) > thisTracer % localMax2D(iCat,iCell) + toleranceMax) then
@@ -8650,8 +8571,8 @@ contains
                             call mpas_log_write('Tolerance, difference: $r $r', MPAS_LOG_ERR, &
                                  realArgs=(/toleranceMax, thisTracer % array2D(iCat,iCell) - thisTracer % localMax2D(iCat,iCell)/))
                             call mpas_log_write('IR advection, monotonicity violation (max, nDims == 2)', MPAS_LOG_ERR)
-                            ierr = SEAICE_ERROR_IR_MONO
-                            call seaice_critical_error_write_block(domain, block)
+                            abortFlag = .true.
+                            call seaice_critical_error_write_block(domain, block, abortFlag)
                             return
 
                          endif
@@ -8765,8 +8686,8 @@ contains
                                call mpas_log_write('Tolerance, difference: $r $r', MPAS_LOG_ERR, &
                                     realArgs=(/toleranceMin, thisTracer % localMin3D(iLayer,iCat,iCell) - thisTracer % array3D(iLayer,iCat,iCell)/))
                                call mpas_log_write('IR advection, monotonicity violation (min, nDims == 3)', MPAS_LOG_ERR)
-                               ierr = SEAICE_ERROR_IR_MONO
-                               call seaice_critical_error_write_block(domain, block)
+                               abortFlag = .true.
+                               call seaice_critical_error_write_block(domain, block, abortFlag)
                                return
 
                             elseif (thisTracer % array3D(iLayer,iCat,iCell) > &
@@ -8784,8 +8705,8 @@ contains
                                call mpas_log_write('Tolerance, difference: $r $r', MPAS_LOG_ERR, &
                                     realArgs=(/toleranceMax, thisTracer % array3D(iLayer,iCat,iCell) - thisTracer % localMax3D(iLayer,iCat,iCell)/))
                                call mpas_log_write('IR advection, monotonicity violation (max, nDims == 3)', MPAS_LOG_ERR)
-                               ierr = SEAICE_ERROR_IR_MONO
-                               call seaice_critical_error_write_block(domain, block)
+                               abortFlag = .true.
+                               call seaice_critical_error_write_block(domain, block, abortFlag)
                                return
 
                             endif

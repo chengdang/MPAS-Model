@@ -96,7 +96,7 @@ contains
 
     ! initialize forcing
     call mpas_log_write(" Initialize forcing...")
-    call seaice_forcing_init(domain)
+    call seaice_forcing_init(domain, clock)
 
     ! init dynamics
     call mpas_log_write(" Initialize velocity solver...")
@@ -1779,7 +1779,8 @@ contains
          config_do_restart, &
          config_use_column_biogeochemistry, &
          config_use_column_package, &
-         config_use_aerosols
+         config_use_aerosols, &
+         config_use_atmosphere_dustBC_flux
 
     integer, pointer :: &
          nCells
@@ -1866,7 +1867,7 @@ contains
        if (config_use_column_biogeochemistry) then
 
           call MPAS_pool_get_subpool(block % structs, "biogeochemistry", biogeochemistry)
-
+          call MPAS_pool_get_config(block % configs, "config_use_atmosphere_dustBC_flux", config_use_atmosphere_dustBC_flux)
           call MPAS_pool_get_array(biogeochemistry, "atmosBioFluxes", atmosBioFluxes)
           call MPAS_pool_get_array(biogeochemistry, "atmosBlackCarbonFlux", atmosBlackCarbonFlux)
           call MPAS_pool_get_array(biogeochemistry, "atmosDustFlux", atmosDustFlux)
@@ -1882,14 +1883,16 @@ contains
           call MPAS_pool_get_dimension(block % dimensions, "nZBGCTracers", nZBGCTracers)
 
           atmosBioFluxes = 0.0_RKIND
-          do iCell = 1, nCells
-             do iBio = 1, maxBCType
-                atmosBlackCarbonFlux(iBio,iCell) =  1.e-12_RKIND
-             enddo
-             do iBio = 1, maxDustType
-                atmosDustFlux(iBio,iCell) =  1.e-13_RKIND
-             enddo
-          enddo ! iCell
+          if (.not. config_use_atmosphere_dustBC_flux) then
+             do iCell = 1, nCells
+                do iBio = 1, maxBCType
+                   atmosBlackCarbonFlux(iBio,iCell) =  1.e-12_RKIND
+                enddo
+                do iBio = 1, maxDustType
+                   atmosDustFlux(iBio,iCell) =  1.e-13_RKIND
+                enddo
+             enddo ! iCell
+          endif
 
           !-------------------------------------------------------------
           ! Bio Concentrations received from ocean

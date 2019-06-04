@@ -285,7 +285,7 @@
 			units="unitless" description="The maximum number of points in any group."
 		/>
 		<dim name="nForcingGroupsMax"
-			definition="4"
+			definition="5"
 			description="The maximum number of forcing groups defined in the core."
 		/>
 		<dim name="nSpectralIntervalsSNICAR"
@@ -769,6 +769,10 @@
 			description="Aerosols in the ice use the z-aerosol scheme"
 			possible_values="true or false"
 			icepack_name="tr_zaero"
+		/>
+		<nml_option name="config_use_atmosphere_dustBC_flux" type="logical" default_value="false" units="unitless"
+			description="use atmospheric dust and BC flux climatologies"
+			possible_values="true or false"
 		/>
 		<nml_option name="config_skeletal_bgc_flux_type" type="character" default_value="Jin2006" units="unitless"
 			description="Determines the ocean-ice fluxes of biogeochemistry for the bottom1-layer model: in Jin2006, the piston velocity is a function of ice growth/melt rate, in default, the piston velocity is constant"
@@ -1653,6 +1657,10 @@
 			description=""
 			possible_values="true or false"
 		/>
+		<nml_option name="config_use_data_icebergs" type="logical" default_value="false" units="unitless"
+			description="Use data iceberg meltwater forcing"
+			possible_values="true or false"
+		/>
 	</nml_record>
 
 	<nml_record name="diagnostics" in_defaults="true">
@@ -1886,6 +1894,33 @@
 			<var name="seaSurfaceTiltV"/>
 			<var name="oceanMixedLayerDepth"/>
 			<var name="oceanHeatFluxConvergence"/>
+		</stream>
+		<stream name="monthlyDustFlux"
+				type="input"
+				filename_template="/home/ccsm-data/inputdata/ocn/mpas-o/oEC60to30v3/oEC60to30v3.monthlySurfaceForcingBGC.171120.nc"
+				filename_interval="none"
+				input_interval="none"
+				immutable="true">
+			<var name="xtime"/>
+			<var name="dust_FLUZ_IN"/>
+		</stream>
+		<stream name="monthlyBlackCarbonFlux"
+				type="input"
+				filename_template="/lcrc/project/ACME/jeffery/DATA/OBS/CAM/Hailong_Wang/cam5_2_BC_deposition_oEC60to30v3.20190315.bilinear.nc"
+				filename_interval="none"
+				input_interval="none"
+				immutable="true">
+			<var name="xtime"/>
+			<var name="blackCarbonFlux"/>
+		</stream> 
+		<stream name="dataIcebergForcing"
+				type="input"
+				filename_template="forcing/data_icebergs.nc"
+				filename_interval="none"
+				input_interval="none"
+				clobber_mode="replace_files"
+				runtime_format="single_file">
+			<var name="bergFreshwaterFluxData"/>
 		</stream>
 
 		<!-- Aerosols input -->
@@ -2196,6 +2231,9 @@
 		<!-- other column packages -->
 		<package name="pkgColumnFormDrag" description=""/>
 
+		<!-- iceberg packages -->
+		<package name="pkgBergs" description=""/>
+
 		<!-- testing system test -->
 		<package name="pkgTestingSystemTest" description=""/>
 
@@ -2428,12 +2466,12 @@
 			packages="pkgTracerVerticalIron"
 		/>
 		<var name="verticalAerosolsSnowCell"		type="real"	dimensions="nzAerosolsSnowLayers nCells Time"	name_in_code="verticalAerosolsSnowCell"
-			units="mg/m^3"
+			units="kg/m^3"
 			description="Cell average aerosol for each type and snow bio-grid layer"
 			packages="pkgTracerZAerosols"
 		/>
 		<var name="verticalAerosolsIceCell"		type="real"	dimensions="nzAerosolsIceLayers nCells Time"	name_in_code="verticalAerosolsIceCell"
-			units="mg/m^3"
+			units="kg/m^3"
 			description="Cell average aerosol for each type and ice bio-grid layer"
 			packages="pkgTracerZAerosols"
 		/>
@@ -3528,6 +3566,17 @@
 		<var name="oceanHeatFluxIceBottom"		type="real"	dimensions="nCells Time"		name_in_code="oceanHeatFluxIceBottom"/>
 	</var_struct>
 
+	<!-- fluxes from data icebergs -->
+	<var_struct name="berg_forcing" time_levs="1" packages="pkgBergs">
+		<var name="bergFreshwaterFluxData"		type="real"	dimensions="nCells Time"		name_in_code="bergFreshwaterFluxData"/>
+	</var_struct>
+
+	<!-- fluxes from icebergs to ocean -->
+	<var_struct name="berg_fluxes" time_levs="1" packages="pkgBergs">
+		<var name="bergFreshwaterFlux"			type="real"	dimensions="nCells Time"		name_in_code="bergFreshwaterFlux"/>
+		<var name="bergLatentHeatFlux"			type="real"	dimensions="nCells Time"		name_in_code="bergLatentHeatFlux"/>
+	</var_struct>
+
 	<!-- ocean atmosphere interaction -->
 	<var_struct name="ocean_atmosphere" time_levs="1">
 		<var name="airStressOceanU"			type="real"	dimensions="nCells Time"		name_in_code="airStressOceanU"/>
@@ -3628,17 +3677,19 @@
 		<var name="atmosBioFluxes"			type="real"	dimensions="nZBGCTracers nCells Time"			name_in_code="atmosBioFluxes"/>
 		<var name="atmosIceBioFluxes"			type="real"	dimensions="nZBGCTracers nCells Time"			name_in_code="atmosIceBioFluxes"/>
 		<var name="snowIceBioFluxes"			type="real"	dimensions="nZBGCTracers nCells Time"			name_in_code="snowIceBioFluxes"/>
+		<var name="dust_FLUZ_IN"			type="real"	dimensions="nCells Time"				name_in_code="dust_FLUZ_IN"	units="kg/m^2/s"	description="Surface Dust Flux"/>
+		<var name="blackCarbonFlux"			type="real"	dimensions="nCells Time"				name_in_code="blackCarbonFlux"	units="kg m^2/s"	description="Surface Black Carbon Flux"/>
 		<var name="atmosBlackCarbonFlux"		type="real"	dimensions="maxBCType nCells Time"			name_in_code="atmosBlackCarbonFlux"/>
 		<var name="atmosDustFlux"			type="real"	dimensions="maxDustType nCells Time"			name_in_code="atmosDustFlux"/>
 		<var name="oceanBioFluxes"			type="real"	dimensions="nZBGCTracers nCells Time"			name_in_code="oceanBioFluxes"
 			units="mmol/m2/s"
-			description="Tracers are ordered: diatom nitrogen, smallPlankton nitrogen, phaeocystis nitrogen, nitrate, polysaccarid carbon, lipid carbon, ammonium, silicate, DMSPp, DMSPd, DMS, Nonreactive nitrate, Protein nitrogen, dissolved iron in umol/m2/s, particulate iron in umol/m2/s, humic carbon, black carbon1 in mg/m2/s, black carbon2 in mg/m2/s, dust1 in mg/m2/s, dust2 in mg/m2/s, dust3 in mg/m2/s, dust4 in mg/m2/s"
+			description="Tracers are ordered: diatom nitrogen, smallPlankton nitrogen, phaeocystis nitrogen, nitrate, polysaccarid carbon, lipid carbon, ammonium, silicate, DMSPp, DMSPd, DMS, Nonreactive nitrate, Protein nitrogen, dissolved iron in umol/m2/s, particulate iron in umol/m2/s, humic carbon, black carbon1 in kg/m2/s, black carbon2 in kg/m2/s, dust1 in kg/m2/s, dust2 in kg/m2/s, dust3 in kg/m2/s, dust4 in kg/m2/s"
 			icepack_name="flux_bio"
 			packages="pkgColumnBiogeochemistry;pkgColumnPackage"
 		/>
 		<var name="oceanBioConcentrations"		type="real"	dimensions="nZBGCTracers nCells Time"			name_in_code="oceanBioConcentrations"
 			units="mmol/m3"
-			description="Tracers are ordered: diatom nitrogen, smallPlankton nitrogen, phaeocystis nitrogen, nitrate, polysaccarid carbon, lipid carbon, ammonium, silicate, DMSPp, DMSPd, DMS, Nonreactive nitrate, Protein nitrogen, dissolved iron in umol/m3, particulate iron in umol/m3, humic carbon, black carbon1 in mg/m3, black carbon2 in mg/m3,dust1 in mg/m3, dust2 in mg/m3, dust3 in mg/m3, dust4 in mg/m3"
+			description="Tracers are ordered: diatom nitrogen, smallPlankton nitrogen, phaeocystis nitrogen, nitrate, polysaccarid carbon, lipid carbon, ammonium, silicate, DMSPp, DMSPd, DMS, Nonreactive nitrate, Protein nitrogen, dissolved iron in umol/m3, particulate iron in umol/m3, humic carbon, black carbon1 in kg/m3, black carbon2 in kg/m3,dust1 in kg/m3, dust2 in kg/m3, dust3 in kg/m3, dust4 in kg/m3"
 			icepack_name="ocean_bio"
 			packages="pkgColumnBiogeochemistry;pkgColumnPackage"
 		/>
@@ -3716,11 +3767,11 @@
 		<var name="totalSkeletalAlgae"			type="real"	dimensions="nCells Time"				name_in_code="totalSkeletalAlgae"/>
 		<var name="totalVerticalBiologyIce" 		type="real"	dimensions="nZBGCTracers nCells Time"			name_in_code="totalVerticalBiologyIce"
 			units="mmol/m2"
-			description="Tracers are ordered: diatom nitrogen, smallPlankton nitrogen, phaeocystis nitrogen, nitrate, polysaccarid carbon, lipid carbon, ammonium, silicate, DMSPp, DMSPd, DMS, Nonreactive nitrate, Protein nitrogen, dissolved iron in umol/m2, particulate iron in umol/m2, humic carbon, black carbon1 in mg/m2, black carbon2 in mg/m2,dust1 in mg/m2, dust2 in mg/m2, dust3 in mg/m2, dust4 in mg/m2"
+			description="Tracers are ordered: diatom nitrogen, smallPlankton nitrogen, phaeocystis nitrogen, nitrate, polysaccarid carbon, lipid carbon, ammonium, silicate, DMSPp, DMSPd, DMS, Nonreactive nitrate, Protein nitrogen, dissolved iron in umol/m2, particulate iron in umol/m2, humic carbon, black carbon1 in kg/m2, black carbon2 in kg/m2,dust1 in kg/m2, dust2 in kg/m2, dust3 in kg/m2, dust4 in kg/m2"
 		/>
 		<var name="totalVerticalBiologySnow"		type="real"	dimensions="nZBGCTracers nCells Time"			name_in_code="totalVerticalBiologySnow"
 			units="mmol/m2"
-			description="Tracers are ordered: diatom nitrogen, smallPlankton nitrogen, phaeocystis nitrogen, nitrate, polysaccarid carbon, lipid carbon, ammonium, silicate, DMSPp, DMSPd, DMS, Nonreactive nitrate, Protein nitrogen, dissolved iron in umol/m2, particulate iron in umol/m2, humic carbon, black carbon1 in mg/m2, black carbon2 in mg/m2,dust1 in mg/m2, dust2 in mg/m2, dust3 in mg/m2, dust4 in mg/m2"
+			description="Tracers are ordered: diatom nitrogen, smallPlankton nitrogen, phaeocystis nitrogen, nitrate, polysaccarid carbon, lipid carbon, ammonium, silicate, DMSPp, DMSPd, DMS, Nonreactive nitrate, Protein nitrogen, dissolved iron in umol/m2, particulate iron in umol/m2, humic carbon, black carbon1 in kg/m2, black carbon2 in kg/m2,dust1 in kg/m2, dust2 in kg/m2, dust3 in kg/m2, dust4 in kg/m2"
 		/>
 		<var name="totalVerticalSalinity"		type="real"	dimensions="nCells Time"				name_in_code="totalVerticalSalinity"		packages="pkgTracerZSalinity;pkgColumnPackage"/>
 		<var name="totalChlorophyll"			type="real"	dimensions="nCells Time"				name_in_code="totalChlorophyll"
